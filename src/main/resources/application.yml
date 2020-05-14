@@ -1,0 +1,16 @@
+
+
+
+redis:
+  pool:
+    maxActive: 300
+    maxIdle: 100
+    maxWait: 1000
+  host: localhost
+  port: 6379
+  password:
+  timeout: 2000
+  # 服务或应用名
+  sysName: test
+  enable: true
+  database: 2
