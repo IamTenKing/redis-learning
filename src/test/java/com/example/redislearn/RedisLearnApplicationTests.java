@@ -5,16 +5,16 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.util.CollectionUtils;
+import redis.clients.jedis.GeoRadiusResponse;
+import redis.clients.jedis.GeoUnit;
 import redis.clients.jedis.Jedis;
 import redis.clients.jedis.JedisPool;
 
+import javax.annotation.Resource;
 import java.sql.SQLOutput;
 import java.text.ParseException;
 import java.text.SimpleDateFormat;
-import java.util.Collection;
-import java.util.Collections;
-import java.util.Date;
-import java.util.Set;
+import java.util.*;
 
 @SpringBootTest
 class RedisLearnApplicationTests {
@@ -149,8 +149,28 @@ class RedisLearnApplicationTests {
         //从一个区间取出值，不指定个数
         Set<String> delaySet = resource.zrangeByScore("delaySet", parse.getTime() - 3000000, parse.getTime() + 30000000);
 
+        delaySet.stream().forEach(s -> {
+            System.out.println("取出的任务如下："+s);
+            redisService.zrem("delaySet",s);
+        });
 
-        delaySet.stream().forEach(s -> System.out.println("取出的任务如下："+s));
+    }
+
+
+    @Test
+    void pubSub(){
+        Jedis resource = null;
+
+        try {
+            resource = pool.getResource();
+
+        } catch (Exception e) {
+            e.printStackTrace();
+        }finally {
+            if(resource != null){
+                resource.close();
+            }
+        }
 
 
     }
@@ -162,6 +182,207 @@ class RedisLearnApplicationTests {
  *  redis实现事务=================================================================
  *  redis事务没有原子性，某条命令失败不会回滚
  */
+
+
+
+
+/**
+ *
+ *  redis 特殊数据类型 geo\hyberloglog\bitmap=================================================================
+ *
+ *  hyberloglog:  PFADD、pfcount、pfmerge 场景：大数据用，作为基数统计用，去重，可能有误差
+ *
+ *  redis 127.0.0.1:6379> PFADD runoobkey "redis"
+ *
+ * 1) (integer) 1
+ *
+ * redis 127.0.0.1:6379> PFADD runoobkey "mongodb"
+ *
+ * 1) (integer) 1
+ *
+ * redis 127.0.0.1:6379> PFADD runoobkey "mysql"
+ *
+ * 1) (integer) 1
+ *
+ * redis 127.0.0.1:6379> PFCOUNT runoobkey
+ *
+ * (integer) 3
+ *
+ *  统计注册 IP 数
+ * 统计每日访问 IP 数
+ * 统计页面实时 UV 数
+ * 统计在线用户数
+ * 统计用户每天搜索不同词条的个数
+ *
+ * bitmap: 作为布隆过滤器用，快速判断一个数是否存在\实现签到的场景
+ * # SETBIT 会返回之前位的值（默认是 0）这里会生成 126 个位
+ * coderknock> SETBIT testBit 125 1
+ * (integer) 0
+ * coderknock> SETBIT testBit 125 0
+ * (integer) 1
+ * coderknock> SETBIT testBit 125 1
+ * (integer) 0
+ * coderknock> GETBIT testBit 125
+ * (integer) 1
+ * coderknock> GETBIT testBit 100
+ * (integer) 0
+ * # SETBIT  value 只能是 0 或者 1  二进制只能是0或者1
+ * coderknock> SETBIT testBit 618 2
+ * (error) ERR bit is not an integer or out of range
+ *
+ *
+ *  geo
+ *
+ *  1）增加地理位置信息  geo add key longitude latitude member
+ *  向cars:locations中增加车辆编号为1以及车辆编号为2的位置信息。
+ *  geoadd cars:locations 120.346111 31.556381 1 120.375821 31.560368 2
+ *
+ *  获取车辆编号为1的车辆位置信息
+ *   geopos cars:locations 1
+ *
+ *   获取两个地理位置的距离
+ *
+ *   geodist cars:locations 1 2 km
+ *
+ *   获取指定位置范围的地理信息位置集合
+ *   GEORADIUS key longitude latitude radius m|km|ft|mi [WITHCOORD] [WITHDIST] [WITHHASH] [ASC|DESC] [COUNT count]
+ *
+ *
+ */
+
+
+
+    @Test
+    void hyberloglog(){
+
+        Jedis resource = null;
+
+        try {
+            resource = pool.getResource();
+            resource.pfadd("usercount","user1");
+            resource.pfadd("usercount","user2");
+            resource.pfadd("usercount","user3");
+            resource.pfadd("usercount","user4");
+            long usercount = resource.pfcount("usercount");
+            System.out.println("在线人数:"+usercount);
+
+
+
+        } catch (Exception e) {
+            e.printStackTrace();
+        }finally {
+            if(resource != null){
+                resource.close();
+            }
+        }
+
+
+    }
+
+    /**
+     * 做布隆过滤器用
+     */
+    @Test
+    void bitmap(){
+        Jedis resource = null;
+
+        try {
+            resource = pool.getResource();
+            Boolean testBit = resource.setbit("testBit", 1, true);
+            System.out.println("==========:"+testBit);
+            Boolean testBit1 = resource.getbit("testBit", 1);
+            System.out.println("==========:"+testBit1);
+
+        } catch (Exception e) {
+            e.printStackTrace();
+        }finally {
+            if(resource != null){
+                resource.close();
+            }
+        }
+
+
+    }
+
+
+
+    @Test
+    void geo(){
+        Jedis resource = null;
+
+        try {
+            resource = pool.getResource();
+            resource.geoadd("cars:locations",120.346111,31.556381,"1");
+            resource.geoadd("cars:locations",120.246111,31.156381,"2");
+            resource.geopos("cars:locations","1");
+            Double geodist = resource.geodist("cars:locations", "1", "2", GeoUnit.KM);
+            System.out.println("距离："+geodist);
+            //查询附近有多少
+            //经度120.375821纬度31.556381为中心查找5公里范围内的车辆
+            //GEORADIUS cars:locations 120.375821 31.556381 5 km WITHCOORD WITHDIST WITHHASH  ASC COUNT 100
+            List<GeoRadiusResponse> georadius = resource.georadius("cars:locations", 120.375821, 31.556381, 5, GeoUnit.KM);
+
+
+        } catch (Exception e) {
+            e.printStackTrace();
+        }finally {
+            if(resource != null){
+                resource.close();
+            }
+        }
+
+
+    }
+
+    /**
+     *
+     * 测试原子自增、自減，作为计数器使用，预减库存场景
+     */
+
+    @Test
+    void incr(){
+        Jedis resource = null;
+
+        try {
+            resource = pool.getResource();
+            Long testInc = resource.incr("testInc");
+
+
+        } catch (Exception e) {
+            e.printStackTrace();
+        }finally {
+            if(resource != null){
+                resource.close();
+            }
+        }
+
+
+    }
+
+    @Test
+    void decr(){
+        Jedis resource = null;
+
+        try {
+            resource = pool.getResource();
+            Long testInc = resource.decr("testInc");
+
+
+        } catch (Exception e) {
+            e.printStackTrace();
+        }finally {
+            if(resource != null){
+                resource.close();
+            }
+        }
+
+
+    }
+
+
+
+
+
 
 
 

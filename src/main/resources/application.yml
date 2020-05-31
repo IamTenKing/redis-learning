@@ -6,7 +6,7 @@ redis:
     maxActive: 300
     maxIdle: 100
     maxWait: 1000
-  host: localhost
+  host: 192.168.2.62
   port: 6379
   password:
   timeout: 2000

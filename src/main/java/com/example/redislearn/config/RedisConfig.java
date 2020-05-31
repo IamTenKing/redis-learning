@@ -69,6 +69,7 @@ public class RedisConfig {
     @Bean
     public JedisPoolConfig constructJedisPoolConfig() {
         JedisPoolConfig config = new JedisPoolConfig();
+        //redis连接池重要的的配置参数 maxTotal,maxIdle，提高maxIdle有助于提升并发性能
         config.setMaxTotal(Integer.parseInt(this.maxActive));
         config.setMaxIdle(Integer.parseInt(this.maxIdle));
         config.setMaxWaitMillis((long)Integer.parseInt(this.maxWait));
