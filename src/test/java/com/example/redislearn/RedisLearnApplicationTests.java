@@ -2,13 +2,11 @@ package com.example.redislearn;
 
 import com.example.redislearn.utils.RedisServiceImpl;
 import org.junit.jupiter.api.Test;
+import org.springframework.beans.MutablePropertyValues;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.util.CollectionUtils;
-import redis.clients.jedis.GeoRadiusResponse;
-import redis.clients.jedis.GeoUnit;
-import redis.clients.jedis.Jedis;
-import redis.clients.jedis.JedisPool;
+import redis.clients.jedis.*;
 
 import javax.annotation.Resource;
 import java.sql.SQLOutput;
@@ -183,7 +181,30 @@ class RedisLearnApplicationTests {
  *  redis事务没有原子性，某条命令失败不会回滚
  */
 
+    @Test
+    void transaction(){
+        Jedis resource = null;
 
+        try {
+            resource = pool.getResource();
+            //获取事务
+            Transaction multi = resource.multi();
+            //往事务中添加命令
+            multi.set("hello","work");
+            multi.expire("hello",50);
+            //执行
+            multi.exec();
+
+        } catch (Exception e) {
+            e.printStackTrace();
+        }finally {
+            if(resource != null){
+                resource.close();
+            }
+        }
+
+
+    }
 
 
 /**
@@ -344,8 +365,24 @@ class RedisLearnApplicationTests {
         Jedis resource = null;
 
         try {
+
             resource = pool.getResource();
+
+            //--------------以下都是原子操作---------------
+            //String类型的原子递增
             Long testInc = resource.incr("testInc");
+            Long testInc1 = resource.incrBy("testInc",1);
+            //hash也可以给某一个属性递增
+            //所以如果是同一类可以使用hash作为计数结够，例如微博点赞计数
+            resource.hincrBy("hashkey","hashfield1::",1);
+
+            //sortedset
+            resource.zincrby("key",1,"member");
+
+            //hash field的模糊匹配
+            ScanParams params = new ScanParams();
+            params.match("*:like:total");
+            ScanResult<Map.Entry<String, String>> scanResult = resource.hscan("weibo", "0", params);
 
 
         } catch (Exception e) {
@@ -377,6 +414,55 @@ class RedisLearnApplicationTests {
         }
 
 
+    }
+
+
+
+    //===================================使用lua脚本实现并发原子性===================
+
+
+    /**
+     * 获取分布式锁
+     * @param key
+     * @param value
+     * @param mills
+     * @return
+     */
+    public boolean lock(String key,String value,long mills){
+        try(Jedis jedis=pool.getResource()){
+            String result=jedis.set(key,value,"NX","PX",mills);
+
+            if("OK".equals(result)){
+                return true;
+            }
+            return false;
+        }catch (Exception e){
+            e.printStackTrace();
+//            log.warn(e.getMessage());
+            return false;
+        }
+    }
+
+    /**
+     * 释放分布式锁
+     * @param key
+     * @param value
+     * @return
+     */
+    public boolean unlock(String key,String value){
+        String script="if redis.call('get',KEYS[1])==ARGV[1] then return redis.call('del', KEYS[1]) else return 0 end";
+        try(Jedis jedis=pool.getResource()){
+            Object result=jedis.eval(script, Collections.singletonList(key),Collections.singletonList(value));
+
+            if(result.equals(1L)){
+                return true;
+            }
+            return false;
+        }catch (Exception e){
+            e.printStackTrace();
+//            log.warn(e.getMessage());
+            return false;
+        }
     }
 
 
